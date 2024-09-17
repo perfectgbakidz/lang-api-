@@ -1,0 +1,64 @@
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
+from googletrans import Translator
+import logging
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+translator = Translator()
+
+# Setup logging to a file (live log)
+logging.basicConfig(filename='translation_log.log', level=logging.INFO, format='%(asctime)s - %(message)s')
+
+# Pydantic model for input validation
+class TranslationRequest(BaseModel):
+    text: str
+
+# Translate endpoint
+@app.post("/translate")
+async def translate_text(request: TranslationRequest):
+    text = request.text
+
+    try:
+        # Detect the language of the input text
+        detected_lang = translator.detect(text).lang
+
+        # Initialize response
+        response = {'original_text': text, 'detected_language': detected_lang}
+
+        # Check if the detected language is Yoruba or English
+        if detected_lang == 'yo':
+            # Translate from Yoruba to English
+            translated = translator.translate(text, dest='en')
+            response['translated_text'] = translated.text
+            response['translation_language'] = 'en'
+            logging.info(f"Translated from Yoruba to English: {text} -> {translated.text}")
+        elif detected_lang == 'en':
+            # Translate from English to Yoruba
+            translated = translator.translate(text, dest='yo')
+            response['translated_text'] = translated.text
+            response['translation_language'] = 'yo'
+            logging.info(f"Translated from English to Yoruba: {text} -> {translated.text}")
+        else:
+            response['error'] = f"Detected language is {detected_lang}. This API only supports Yoruba and English translation."
+            logging.info(f"Unsupported language detected: {detected_lang}")
+            raise HTTPException(status_code=400, detail=response['error'])
+
+    except Exception as e:
+        logging.error(f"Translation error for text '{text}': {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Translation service error: {str(e)}")
+
+    # Return the response as JSON
+    return JSONResponse(content=response)
+
+# Live log endpoint to show activity
+@app.get("/log")
+async def get_log():
+    try:
+        with open('translation_log.log', 'r') as f:
+            log_content = f.readlines()
+        return JSONResponse(content={'log': log_content})
+    except Exception as e:
+        logging.error(f"Error reading log file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reading log file: {str(e)}")
+
